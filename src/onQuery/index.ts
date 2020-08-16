@@ -8,6 +8,7 @@ import { LimitQuery } from '../limit'
 import { Cursor, CursorMethod } from '../cursor'
 import { wrapData, unwrapData } from '../data'
 import { CollectionGroup } from '../group'
+import { DocChange } from '../docChange'
 
 type FirebaseQuery =
   | FirebaseFirestore.CollectionReference
@@ -55,7 +56,7 @@ export type Query<Model, Key extends keyof Model> =
 export default function onQuery<Model>(
   collection: Collection<Model> | CollectionGroup<Model>,
   queries: Query<Model, keyof Model>[],
-  onResult: (docs: Doc<Model>[]) => any,
+  onResult: (docs: Doc<Model>[], getDocChanges: () => DocChange<Model>[]) => any,
   onError?: (err: Error) => any
 ): () => void {
   let unsubCalled = false
@@ -148,8 +149,7 @@ export default function onQuery<Model>(
 
       firebaseUnsub = paginatedFirestoreQuery.onSnapshot(
         (firestoreSnap: FirebaseFirestore.QuerySnapshot) => {
-          onResult(
-            firestoreSnap.docs.map(d =>
+            const docs: Doc<Model>[] = firestoreSnap.docs.map(d =>
               doc(
                 collection.__type__ === 'collectionGroup'
                   ? pathToRef(d.ref.path)
@@ -157,7 +157,13 @@ export default function onQuery<Model>(
                 wrapData(a, d.data()) as Model
               )
             )
-          )
+          const getDocChanges = () => firestoreSnap.docChanges().map(change => ({
+            type: change.type,
+            doc: docs[change.type === 'removed' ? change.oldIndex : change.newIndex],
+            oldIndex: change.oldIndex,
+            newIndex: change.newIndex
+          }))
+          onResult(docs, getDocChanges)
         },
         onError
       )
